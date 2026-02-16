@@ -1,0 +1,18 @@
+services:
+  pptx-frontend:
+    build: ./pptx-frontend-main
+    container_name: pptx-frontend
+    ports:
+      - "8081:80"
+    networks:
+      - app_net
+
+  pptx-backend:
+    build: ./pptx-backend
+    container_name: pptx-backend
+    networks:
+      - app_net
+
+networks:
+  app_net:
+    driver: bridge
