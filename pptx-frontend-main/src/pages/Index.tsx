@@ -233,10 +233,10 @@ const Index = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="tag">Tag</Label>
+                  <Label htmlFor="tag">Team tag</Label>
                   <Select value={tag} onValueChange={setTag}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select tag" />
+                      <SelectValue placeholder="Select team tag" />
                     </SelectTrigger>
                     <SelectContent>
                       {TAG_OPTIONS.map((option) => (
@@ -283,12 +283,12 @@ const Index = () => {
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="metadata">Metadata</Label>
+                  <Label htmlFor="timeline">Timeline</Label>
                   <Input
                     id="metadata"
                     value={metadata}
                     onChange={(e) => setMetadata(e.target.value)}
-                    placeholder="Enter metadata..."
+                    placeholder="Enter timeline..."
                     className="w-full"
                   />
                 </div>
