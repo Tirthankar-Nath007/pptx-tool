@@ -75,6 +75,8 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
     );
   };
 
+  console.log("eta", rows.map(row => row.eta));
+
   return (
     <div className="border rounded-lg overflow-hidden">
       <Table>
@@ -149,13 +151,21 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
                       }`}
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
-                      {row.eta ? format(new Date(row.eta), "dd/MM/yyyy") : <span>Select date</span>}
+                      {row.eta ? (() => {
+                        // Parse date string in dd/MM/yyyy format correctly
+                        const [day, month, year] = row.eta.split("/");
+                        const date = new Date(Number(year), Number(month) - 1, Number(day));
+                        return format(date, "dd/MM/yyyy");
+                      })() : <span>Select date</span>}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0">
                     <Calendar
                       mode="single"
-                      selected={row.eta ? new Date(row.eta) : undefined}
+                      selected={row.eta ? (() => {
+                        const [day, month, year] = row.eta.split("/");
+                        return new Date(Number(year), Number(month) - 1, Number(day));
+                      })() : undefined}
                       onSelect={(date) => onRowChange(index, "eta", date ? format(date, "dd/MM/yyyy") : "")}
                       initialFocus
                     />

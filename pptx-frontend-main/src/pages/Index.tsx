@@ -73,7 +73,7 @@ const Index = () => {
   const [isUploadingExcel, setIsUploadingExcel] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const presentationTitle = `${tag}:${subtag} - ${metadata}`;
+  const presentationTitle = `${tag}: ${subtag} - ${metadata}`;
 
   const validationErrors = useMemo(() => validateAllRows(rows), [rows]);
   const hasErrors = useMemo(() => hasValidationErrors(validationErrors), [validationErrors]);
