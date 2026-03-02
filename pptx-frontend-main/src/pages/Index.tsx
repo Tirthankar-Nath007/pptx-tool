@@ -64,8 +64,10 @@ const SUBTAG_OPTIONS = [
 ];
 
 const Index = () => {
-  const [tag, setTag] = useState("");
+const [tag, setTag] = useState("");
   const [subtag, setSubtag] = useState("");
+  const [customTag, setCustomTag] = useState("");
+  const [customSubtag, setCustomSubtag] = useState("");
   const [metadata, setMetadata] = useState("");
   const [rows, setRows] = useState<RowData[]>([createEmptyRow()]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -73,7 +75,7 @@ const Index = () => {
   const [isUploadingExcel, setIsUploadingExcel] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const presentationTitle = `${tag}: ${subtag} - ${metadata}`;
+  const presentationTitle = `${tag === "custom" ? customTag : tag}: ${subtag === "custom" ? customSubtag : subtag} - ${metadata}`;
 
   const validationErrors = useMemo(() => validateAllRows(rows), [rows]);
   const hasErrors = useMemo(() => hasValidationErrors(validationErrors), [validationErrors]);
@@ -247,10 +249,10 @@ const Index = () => {
                       <SelectItem value="custom">Other (specify)</SelectItem>
                     </SelectContent>
                   </Select>
-                  {tag === "custom" && (
+{tag === "custom" && (
                     <Input
-                      value={tag}
-                      onChange={(e) => setTag(e.target.value)}
+                      value={customTag}
+                      onChange={(e) => setCustomTag(e.target.value)}
                       placeholder="Enter custom tag..."
                       className="mt-2"
                     />
@@ -272,10 +274,10 @@ const Index = () => {
                       <SelectItem value="custom">Other (specify)</SelectItem>
                     </SelectContent>
                   </Select>
-                  {subtag === "custom" && (
+{subtag === "custom" && (
                     <Input
-                      value={subtag}
-                      onChange={(e) => setSubtag(e.target.value)}
+                      value={customSubtag}
+                      onChange={(e) => setCustomSubtag(e.target.value)}
                       placeholder="Enter custom subtag..."
                       className="mt-2"
                     />
