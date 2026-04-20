@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Minus, FileDown, Upload, FileSpreadsheet } from "lucide-react";
+import { Plus, Minus, FileDown, Upload, FileSpreadsheet, LogOut, Shield } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import ProjectUpdateTable, { RowData } from "@/components/ProjectUpdateTable";
 import {
@@ -63,7 +63,12 @@ const SUBTAG_OPTIONS = [
   "Key Enhancements"
 ];
 
-const Index = () => {
+interface IndexProps {
+  user?: string | null;
+  onLogout?: () => void;
+}
+
+const Index = ({ user, onLogout }: IndexProps) => {
 const [tag, setTag] = useState("");
   const [subtag, setSubtag] = useState("");
   const [customTag, setCustomTag] = useState("");
@@ -218,6 +223,23 @@ const [tag, setTag] = useState("");
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
+        {/* User Info Bar */}
+        {user && (
+          <div className="flex justify-between items-center bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
+            <div className="flex items-center gap-3">
+              <Shield className="h-5 w-5 text-tvs-blue" />
+              <div>
+                <p className="text-xs text-muted-foreground">Logged in as</p>
+                <p className="text-sm font-semibold text-foreground">{user}</p>
+              </div>
+            </div>
+            <Button onClick={onLogout} variant="outline" size="sm">
+              <LogOut className="h-4 w-4 mr-2" />
+              Logout
+            </Button>
+          </div>
+        )}
+
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-foreground">Project Status Update</h1>

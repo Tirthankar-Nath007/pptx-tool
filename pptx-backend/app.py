@@ -1,8 +1,24 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import json
+import base64
+import zlib
+import uuid
+import logging
+from datetime import datetime, timezone
+from urllib.parse import quote
+
+import xmlsec
+from lxml import etree
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
+
+from dotenv import load_dotenv
+load_dotenv()
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -35,6 +51,332 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# =============================================================================
+# SAML AUTHENTICATION CONFIGURATION
+# =============================================================================
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
+logger = logging.getLogger("saml_sp")
+
+REQUIRED_ENV_VARS = [
+    "IDAM_SSO_URL", "IDAM_SLO_URL", "ISSUER",
+    "ACS_URL", "FRONTEND_REDIRECT", "IDP_CERT", "SESSION_SECRET",
+]
+missing = [var for var in REQUIRED_ENV_VARS if not os.getenv(var)]
+if missing:
+    logger.warning("Missing required environment variables: %s", ", ".join(missing))
+
+IDAM_SSO_URL      = os.getenv("IDAM_SSO_URL")        # IdP SSO endpoint
+IDAM_SLO_URL      = os.getenv("IDAM_SLO_URL")        # IdP SLO endpoint
+ISSUER            = os.getenv("ISSUER")                # SP entity ID
+ACS_URL           = os.getenv("ACS_URL")               # SP ACS URL
+FRONTEND_REDIRECT = os.getenv("FRONTEND_REDIRECT")    # Frontend base URL
+SESSION_SECRET    = os.getenv("SESSION_SECRET")        # Cookie signing secret
+IDP_CERT_B64      = os.getenv("IDP_CERT", "").replace("\n", "").replace(" ", "").strip()
+
+SESSION_MAX_AGE = 28800
+
+NS = {
+    "saml2p": "urn:oasis:names:tc:SAML:2.0:protocol",
+    "saml2":  "urn:oasis:names:tc:SAML:2.0:assertion",
+    "ds":     "http://www.w3.org/2000/09/xmldsig#",
+}
+
+def load_idp_public_key() -> xmlsec.Key:
+    if not IDP_CERT_B64:
+        return None
+    try:
+        cert_der = base64.b64decode(IDP_CERT_B64)
+        cert = x509.load_der_x509_certificate(cert_der, default_backend())
+        cert_pem = cert.public_bytes(encoding=serialization.Encoding.PEM)
+        key = xmlsec.Key.from_memory(cert_pem, xmlsec.KeyFormat.CERT_PEM)
+        return key
+    except Exception as exc:
+        logger.error("Failed to load IdP public key: %s", exc)
+        return None
+
+IDP_KEY = load_idp_public_key()
+
+serializer = URLSafeTimedSerializer(SESSION_SECRET) if SESSION_SECRET else None
+
+def create_session_cookie(response: RedirectResponse, claims: dict) -> None:
+    if not serializer:
+        return
+    session_data = {
+        "user_id":        claims["user_id"],
+        "name_id":        claims["user_id"],
+        "session_index":  claims["session_index"],
+        "session_expiry": claims["session_expiry"],
+    }
+    cookie_value = serializer.dumps(session_data)
+    response.set_cookie(
+        key="saml_session",
+        value=cookie_value,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=SESSION_MAX_AGE,
+    )
+
+def get_session(request: Request) -> dict | None:
+    if not serializer:
+        return None
+    cookie = request.cookies.get("saml_session")
+    if not cookie:
+        return None
+    try:
+        data = serializer.loads(cookie, max_age=SESSION_MAX_AGE)
+        return data
+    except (SignatureExpired, BadSignature):
+        return None
+
+def clear_session_cookie(response) -> None:
+    response.delete_cookie("saml_session", httponly=True, secure=True, samesite="lax")
+
+def deflate_and_base64(xml: str) -> str:
+    compressor = zlib.compressobj(zlib.Z_DEFAULT_COMPRESSION, zlib.DEFLATED, -15)
+    compressed = compressor.compress(xml.encode("utf-8")) + compressor.flush()
+    return base64.b64encode(compressed).decode("utf-8")
+
+def build_authn_request(request_id: str, issue_instant: str) -> str:
+    return (
+        f'<saml2p:AuthnRequest '
+        f'ID="{request_id}" '
+        f'Version="2.0" '
+        f'IssueInstant="{issue_instant}" '
+        f'Destination="{IDAM_SSO_URL}" '
+        f'AssertionConsumerServiceURL="{ACS_URL}" '
+        f'xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion" '
+        f'xmlns:saml2p="urn:oasis:names:tc:SAML:2.0:protocol">'
+        f'<saml2:Issuer>{ISSUER}</saml2:Issuer>'
+        f'</saml2p:AuthnRequest>'
+    )
+
+def build_logout_request(request_id: str, issue_instant: str, name_id: str, session_index: str) -> str:
+    return (
+        f'<saml2p:LogoutRequest '
+        f'ID="{request_id}" '
+        f'Version="2.0" '
+        f'IssueInstant="{issue_instant}" '
+        f'Destination="{IDAM_SLO_URL}" '
+        f'xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion" '
+        f'xmlns:saml2p="urn:oasis:names:tc:SAML:2.0:protocol">'
+        f'<saml2:Issuer>{ISSUER}</saml2:Issuer>'
+        f'<saml2:NameID '
+        f'Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified">'
+        f'{name_id}'
+        f'</saml2:NameID>'
+        f'<saml2p:SessionIndex>{session_index}</saml2p:SessionIndex>'
+        f'</saml2p:LogoutRequest>'
+    )
+
+def build_logout_response(request_id: str, issue_instant: str, in_response_to: str) -> str:
+    return (
+        f'<saml2p:LogoutResponse '
+        f'ID="{request_id}" '
+        f'Version="2.0" '
+        f'IssueInstant="{issue_instant}" '
+        f'Destination="{IDAM_SLO_URL}" '
+        f'InResponseTo="{in_response_to}" '
+        f'xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion" '
+        f'xmlns:saml2p="urn:oasis:names:tc:SAML:2.0:protocol">'
+        f'<saml2:Issuer>{ISSUER}</saml2:Issuer>'
+        f'<saml2p:Status>'
+        f'<saml2p:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>'
+        f'</saml2p:Status>'
+        f'</saml2p:LogoutResponse>'
+    )
+
+def verify_saml_signature(root: etree._Element) -> bool:
+    if not IDP_KEY:
+        return True
+    assertion = root.find(".//saml2:Assertion", NS)
+    if assertion is None:
+        raise ValueError("No Assertion element found in SAML response")
+    signature_node = xmlsec.tree.find_node(assertion, xmlsec.Node.SIGNATURE)
+    if signature_node is None:
+        raise ValueError("No Signature found in Assertion")
+    xmlsec.tree.add_ids(assertion, ["ID"])
+    ctx = xmlsec.SignatureContext()
+    ctx.key = IDP_KEY
+    ctx.verify(signature_node)
+    return True
+
+def parse_dt(s: str) -> datetime | None:
+    if s is None:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+
+def parse_saml_assertion(root: etree._Element) -> dict:
+    assertion = root.find(".//saml2:Assertion", NS)
+    if assertion is None:
+        raise ValueError("No Assertion found in SAMLResponse")
+
+    name_id_el = assertion.find(".//saml2:NameID", NS)
+    name_id    = name_id_el.text.strip() if (name_id_el is not None and name_id_el.text) else None
+
+    authn_stmt  = assertion.find(".//saml2:AuthnStatement", NS)
+    session_idx = authn_stmt.get("SessionIndex")        if authn_stmt is not None else None
+    session_exp = authn_stmt.get("SessionNotOnOrAfter") if authn_stmt is not None else None
+
+    conditions   = assertion.find("saml2:Conditions", NS)
+    not_before   = conditions.get("NotBefore")   if conditions is not None else None
+    not_on_after = conditions.get("NotOnOrAfter") if conditions is not None else None
+
+    now = datetime.now(timezone.utc)
+    if not_before   and now < parse_dt(not_before):
+        raise ValueError(f"Assertion not yet valid (NotBefore: {not_before})")
+    if not_on_after and now >= parse_dt(not_on_after):
+        raise ValueError(f"Assertion has expired (NotOnOrAfter: {not_on_after})")
+
+    return {
+        "user_id":        name_id,
+        "session_index":  session_idx,
+        "session_expiry": session_exp,
+    }
+
+# =============================================================================
+# SAML AUTHENTICATION ROUTES
+# =============================================================================
+
+@app.get("/login", summary="Initiate SAML SSO login")
+def login():
+    if not IDAM_SSO_URL or not ACS_URL:
+        return HTMLResponse("SAML not configured", status_code=500)
+    
+    request_id    = "_" + str(uuid.uuid4())
+    issue_instant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    
+    xml         = build_authn_request(request_id, issue_instant)
+    encoded     = deflate_and_base64(xml)
+    url_encoded = quote(encoded, safe="")
+    
+    redirect_url = f"{IDAM_SSO_URL}?SAMLRequest={url_encoded}"
+    return RedirectResponse(redirect_url)
+
+@app.post("/acs", summary="Receive SAMLResponse from IdP after authentication")
+async def acs(request: Request):
+    form = await request.form()
+    raw  = form.get("SAMLResponse")
+    if not raw:
+        return HTMLResponse("Missing SAMLResponse", status_code=400)
+    
+    clean = raw.replace(" ", "+").strip()
+    
+    try:
+        decoded_bytes = base64.b64decode(clean)
+        saml_xml      = decoded_bytes.decode("utf-8")
+        root = etree.fromstring(saml_xml.encode("utf-8"))
+    except Exception as exc:
+        return HTMLResponse(f"Failed to parse SAMLResponse: {exc}", status_code=400)
+    
+    status_el = root.find(".//saml2p:StatusCode", NS)
+    if status_el is not None:
+        status_val = status_el.get("Value", "")
+        if "Success" not in status_val:
+            return HTMLResponse(f"IdP returned non-success: {status_val}", status_code=401)
+    
+    try:
+        verify_saml_signature(root)
+    except Exception as exc:
+        return HTMLResponse(f"Signature verification failed: {exc}", status_code=401)
+    
+    try:
+        claims = parse_saml_assertion(root)
+    except ValueError as exc:
+        return HTMLResponse(f"Assertion validation failed: {exc}", status_code=401)
+    
+    user_id = claims["user_id"]
+    if not user_id:
+        return HTMLResponse("NameID missing in assertion", status_code=401)
+    
+    response = RedirectResponse(FRONTEND_REDIRECT, status_code=303)
+    create_session_cookie(response, claims)
+    return response
+
+@app.get("/auth/me", summary="Check if the current user is authenticated")
+def auth_me(request: Request):
+    session = get_session(request)
+    if not session:
+        return JSONResponse({"authenticated": False}, status_code=401)
+    
+    return JSONResponse({
+        "authenticated":   True,
+        "user_id":         session["user_id"],
+        "session_expiry":  session.get("session_expiry"),
+    })
+
+@app.get("/logout", summary="Local logout — clears session cookie only")
+def logout(request: Request):
+    session = get_session(request)
+    response = RedirectResponse(FRONTEND_REDIRECT, status_code=303)
+    clear_session_cookie(response)
+    return response
+
+@app.get("/slo", summary="Single Logout — SP-initiated or IdP SLO response receiver")
+def slo_get(request: Request):
+    saml_response_encoded = request.query_params.get("SAMLResponse")
+    if saml_response_encoded:
+        return RedirectResponse(FRONTEND_REDIRECT, status_code=303)
+    
+    session = get_session(request)
+    if not session:
+        return RedirectResponse(FRONTEND_REDIRECT, status_code=303)
+    
+    user_id       = session.get("user_id")
+    name_id       = session.get("name_id", user_id)
+    session_index = session.get("session_index")
+    
+    request_id    = "_" + str(uuid.uuid4())
+    issue_instant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    logout_request_xml = build_logout_request(request_id, issue_instant, name_id, session_index)
+    
+    encoded     = deflate_and_base64(logout_request_xml)
+    url_encoded = quote(encoded, safe="")
+    
+    idp_slo_url = f"{IDAM_SLO_URL}?SAMLRequest={url_encoded}"
+    
+    response = RedirectResponse(idp_slo_url, status_code=303)
+    clear_session_cookie(response)
+    return response
+
+@app.post("/slo", summary="IdP-initiated Single Logout")
+async def slo_post(request: Request):
+    form = await request.form()
+    raw  = form.get("SAMLRequest")
+    
+    if not raw:
+        return HTMLResponse("Missing SAMLRequest", status_code=400)
+    
+    try:
+        clean         = raw.replace(" ", "+").strip()
+        decoded_bytes = base64.b64decode(clean)
+        logout_xml    = decoded_bytes.decode("utf-8")
+        root           = etree.fromstring(logout_xml.encode("utf-8"))
+        logout_req_id  = root.get("ID", "_unknown")
+    except Exception as exc:
+        return HTMLResponse(f"Failed to decode SAMLRequest: {exc}", status_code=400)
+    
+    response_id   = "_" + str(uuid.uuid4())
+    issue_instant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    logout_response_xml = build_logout_response(response_id, issue_instant, logout_req_id)
+    
+    encoded     = deflate_and_base64(logout_response_xml)
+    url_encoded = quote(encoded, safe="")
+    
+    idp_slo_url  = f"{IDAM_SLO_URL}?SAMLResponse={url_encoded}"
+    
+    response = RedirectResponse(idp_slo_url, status_code=303)
+    clear_session_cookie(response)
+    return response
+
 
 class PPTXRequest(BaseModel):
     type: str

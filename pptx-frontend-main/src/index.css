@@ -38,6 +38,10 @@ All colors MUST be HSL.
 
     --radius: 0.5rem;
 
+    --tvs-blue: 215 70% 25%;
+    --tvs-green: 152 55% 35%;
+    --tvs-gradient: linear-gradient(135deg, hsl(215 70% 25%), hsl(152 55% 35%));
+
     --sidebar-background: 0 0% 98%;
 
     --sidebar-foreground: 240 5.3% 26.1%;

@@ -14,6 +14,8 @@ export default {
     },
     extend: {
       colors: {
+        "tvs-blue": "hsl(var(--tvs-blue))",
+        "tvs-green": "hsl(var(--tvs-green))",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
