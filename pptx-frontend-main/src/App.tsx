@@ -44,7 +44,7 @@ const App = () => {
 
   const handleLogout = () => {
     setUser(null);
-    window.location.href = "/slo";
+    window.location.href = "/api/slo";
   };
 
   return (
