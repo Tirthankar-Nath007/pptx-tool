@@ -4,7 +4,7 @@ import logo from "../assets/tvscredit-logo.png";
 
 const LoginPage = ({ projectTitle = "PPTX" }: { projectTitle?: string }) => {
   const handleSSOLogin = () => {
-    window.location.href = "/login";
+    window.location.href = "/api/login";
   };
 
   return (
