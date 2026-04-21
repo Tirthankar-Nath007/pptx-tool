@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Minus, FileDown, Upload, FileSpreadsheet, LogOut, Shield } from "lucide-react";
+import { Plus, Minus, FileDown, Upload, FileSpreadsheet, LogOut, Shield, User } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import ProjectUpdateTable, { RowData } from "@/components/ProjectUpdateTable";
 import {
@@ -16,6 +16,13 @@ import {
 } from "@/lib/api";
 import { validateAllRows, hasValidationErrors } from "@/lib/validation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import logo from "../assets/tvscredit-logo.png";
 
 const FIXED_COLUMNS = [
@@ -222,45 +229,53 @@ const Index = ({ user, onLogout }: IndexProps) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-muted via-background to-muted p-4">
-      <div className="fixed inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-tvs-blue/5" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-tvs-green/5" />
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-muted via-background to-muted">
+      {/* Fixed Header */}
+      <div className="fixed top-0 left-0 right-0 z-50">
+        <div className="h-1.5 w-full" style={{ background: "var(--tvs-gradient)" }} />
+        <div className="bg-white border-b border-border px-6 py-3">
+          <div className="max-w-7xl mx-auto flex items-center justify-between">
+            {/* Logo & Title */}
+            <div className="flex items-center gap-3">
+              <img src={logo} alt="TVS Credit Service Ltd" className="h-10 object-contain" />
+              <span className="text-lg font-semibold text-tvs-blue tracking-wide">
+                PPTX Automation
+              </span>
+            </div>
 
-      <div className="relative max-w-7xl mx-auto space-y-6">
-        {/* Header with Logo */}
-        <div className="text-center py-6">
-          <div className="flex flex-col items-center gap-2">
-            <img src={logo} alt="TVS Credit Service Ltd" className="h-12 object-contain" />
-          </div>
-          <div className="bg-muted/50 rounded-lg px-4 py-2 w-fit mx-auto mt-3">
-            <span className="text-sm font-semibold text-tvs-blue tracking-wide uppercase">
-              PPTX Automation
-            </span>
+            {/* User Dropdown */}
+            {user && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" className="flex items-center gap-2 px-3 py-2 h-auto">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback className="bg-tvs-blue text-white text-sm">
+                        <User className="h-4 w-4" />
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium text-foreground">{user}</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={onLogout} className="text-destructive cursor-pointer">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
+      </div>
 
-        {/* User Info Bar */}
-        {user && (
-          <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
-            <div className="flex justify-between items-center">
-              <div className="flex items-center gap-3">
-                <Shield className="h-5 w-5 text-tvs-blue" />
-                <div>
-                  <p className="text-xs text-muted-foreground">Logged in as</p>
-                  <p className="text-sm font-semibold text-foreground">{user}</p>
-                </div>
-              </div>
-              <Button onClick={onLogout} variant="outline" size="sm">
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
-            </div>
-          </div>
-        )}
+      {/* Main Content with padding for fixed header */}
+      <div className="pt-24 px-4 pb-6">
+        <div className="fixed inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-tvs-blue/5" />
+          <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-tvs-green/5" />
+        </div>
 
-        {/* Presentation Title Card */}
+        <div className="relative max-w-7xl mx-auto space-y-6">
         <div className="bg-card rounded-2xl shadow-2xl shadow-tvs-blue/10 border border-border/60 overflow-hidden">
           <div className="h-1.5 w-full" style={{ background: "var(--tvs-gradient)" }} />
           <CardHeader className="pb-3">
@@ -434,6 +449,7 @@ const Index = ({ user, onLogout }: IndexProps) => {
           © {new Date().getFullYear()} TVS Credit Service Ltd. All rights reserved.
         </p>
       </div>
+    </div>
     </div>
   );
 };
