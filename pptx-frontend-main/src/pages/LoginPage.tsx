@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import logo from "../assets/tvscredit-logo.png";
 
 const LoginPage = ({ projectTitle = "PPTX" }: { projectTitle?: string }) => {
-  const handleSSOLogin = () => {
+const handleSSOLogin = () => {
     window.location.href = "/api/login";
   };
 
@@ -21,9 +21,6 @@ const LoginPage = ({ projectTitle = "PPTX" }: { projectTitle?: string }) => {
           <div className="px-8 pt-10 pb-10 flex flex-col items-center gap-8">
             <div className="flex flex-col items-center gap-3">
               <img src={logo} alt="TVS Credit Service Ltd" className="h-14 object-contain" />
-              <p className="text-muted-foreground text-sm tracking-wide">
-                SERVICE LTD
-              </p>
             </div>
 
             <div className="bg-muted/50 rounded-lg px-4 py-2 w-full text-center">
@@ -34,7 +31,7 @@ const LoginPage = ({ projectTitle = "PPTX" }: { projectTitle?: string }) => {
 
             <div className="text-center space-y-2">
               <h1 className="text-2xl font-bold text-foreground">
-                Welcome Back
+                Welcome
               </h1>
               <p className="text-muted-foreground text-sm">
                 Sign in to access your account

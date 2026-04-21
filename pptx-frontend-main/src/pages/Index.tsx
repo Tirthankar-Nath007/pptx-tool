@@ -16,6 +16,7 @@ import {
 } from "@/lib/api";
 import { validateAllRows, hasValidationErrors } from "@/lib/validation";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import logo from "../assets/tvscredit-logo.png";
 
 const FIXED_COLUMNS = [
   "Sl no.",
@@ -69,7 +70,7 @@ interface IndexProps {
 }
 
 const Index = ({ user, onLogout }: IndexProps) => {
-const [tag, setTag] = useState("");
+  const [tag, setTag] = useState("");
   const [subtag, setSubtag] = useState("");
   const [customTag, setCustomTag] = useState("");
   const [customSubtag, setCustomSubtag] = useState("");
@@ -221,37 +222,49 @@ const [tag, setTag] = useState("");
   };
 
   return (
-    <div className="min-h-screen bg-background p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-muted via-background to-muted p-4">
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-tvs-blue/5" />
+        <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-tvs-green/5" />
+      </div>
+
+      <div className="relative max-w-7xl mx-auto space-y-6">
+        {/* Header with Logo */}
+        <div className="text-center py-6">
+          <div className="flex flex-col items-center gap-2">
+            <img src={logo} alt="TVS Credit Service Ltd" className="h-12 object-contain" />
+          </div>
+          <div className="bg-muted/50 rounded-lg px-4 py-2 w-fit mx-auto mt-3">
+            <span className="text-sm font-semibold text-tvs-blue tracking-wide uppercase">
+              PPTX Automation
+            </span>
+          </div>
+        </div>
+
         {/* User Info Bar */}
         {user && (
-          <div className="flex justify-between items-center bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
-            <div className="flex items-center gap-3">
-              <Shield className="h-5 w-5 text-tvs-blue" />
-              <div>
-                <p className="text-xs text-muted-foreground">Logged in as</p>
-                <p className="text-sm font-semibold text-foreground">{user}</p>
+          <div className="bg-primary/5 border border-primary/20 rounded-xl px-4 py-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <Shield className="h-5 w-5 text-tvs-blue" />
+                <div>
+                  <p className="text-xs text-muted-foreground">Logged in as</p>
+                  <p className="text-sm font-semibold text-foreground">{user}</p>
+                </div>
               </div>
+              <Button onClick={onLogout} variant="outline" size="sm">
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </Button>
             </div>
-            <Button onClick={onLogout} variant="outline" size="sm">
-              <LogOut className="h-4 w-4 mr-2" />
-              Logout
-            </Button>
           </div>
         )}
 
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-foreground">Project Status Update</h1>
-          <p className="text-muted-foreground mt-2">
-            Generate PowerPoint presentations from project update
-          </p>
-        </div>
-
-        {/* Presentation Title */}
-        <Card>
+        {/* Presentation Title Card */}
+        <div className="bg-card rounded-2xl shadow-2xl shadow-tvs-blue/10 border border-border/60 overflow-hidden">
+          <div className="h-1.5 w-full" style={{ background: "var(--tvs-gradient)" }} />
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Presentation Title</CardTitle>
+            <CardTitle className="text-lg text-tvs-blue">Presentation Title</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
@@ -271,7 +284,7 @@ const [tag, setTag] = useState("");
                       <SelectItem value="custom">Other (specify)</SelectItem>
                     </SelectContent>
                   </Select>
-{tag === "custom" && (
+                  {tag === "custom" && (
                     <Input
                       value={customTag}
                       onChange={(e) => setCustomTag(e.target.value)}
@@ -296,7 +309,7 @@ const [tag, setTag] = useState("");
                       <SelectItem value="custom">Other (specify)</SelectItem>
                     </SelectContent>
                   </Select>
-{subtag === "custom" && (
+                  {subtag === "custom" && (
                     <Input
                       value={customSubtag}
                       onChange={(e) => setCustomSubtag(e.target.value)}
@@ -320,17 +333,18 @@ const [tag, setTag] = useState("");
               
               <div className="pt-2">
                 <p className="text-sm text-muted-foreground">
-                  Preview: <span className="font-medium text-foreground">{presentationTitle}</span>
+                  Preview: <span className="font-medium text-foreground">{presentationTitle || "Fill in the fields above"}</span>
                 </p>
               </div>
             </div>
           </CardContent>
-        </Card>
+        </div>
 
-        {/* Data Entry Table */}
-        <Card>
+        {/* Data Entry Table Card */}
+        <div className="bg-card rounded-2xl shadow-2xl shadow-tvs-blue/10 border border-border/60 overflow-hidden">
+          <div className="h-1.5 w-full" style={{ background: "var(--tvs-gradient)" }} />
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Project Updates Data</CardTitle>
+            <CardTitle className="text-lg text-tvs-blue">Project Updates Data</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="overflow-x-auto">
@@ -361,7 +375,7 @@ const [tag, setTag] = useState("");
               <Button
                 onClick={handleGeneratePptx}
                 disabled={isGenerating || hasErrors}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto bg-tvs-blue hover:bg-tvs-blue/90 text-primary-foreground font-semibold py-6 rounded-xl transition-all duration-200 hover:shadow-lg hover:shadow-tvs-blue/20 hover:-translate-y-0.5"
                 size="lg"
               >
                 <FileDown className="h-4 w-4 mr-2" />
@@ -374,12 +388,13 @@ const [tag, setTag] = useState("");
               )}
             </div>
           </CardContent>
-        </Card>
+        </div>
 
-        {/* Excel Section */}
-        <Card>
+        {/* Excel Section Card */}
+        <div className="bg-card rounded-2xl shadow-2xl shadow-tvs-blue/10 border border-border/60 overflow-hidden">
+          <div className="h-1.5 w-full" style={{ background: "var(--tvs-gradient)" }} />
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Excel Options</CardTitle>
+            <CardTitle className="text-lg text-tvs-blue">Excel Options</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex flex-wrap gap-3">
@@ -387,6 +402,7 @@ const [tag, setTag] = useState("");
                 onClick={handleDownloadTemplate}
                 variant="secondary"
                 disabled={isDownloadingTemplate}
+                className="bg-tvs-green hover:bg-tvs-green/90 text-secondary-foreground"
               >
                 <FileSpreadsheet className="h-4 w-4 mr-2" />
                 {isDownloadingTemplate ? "Downloading..." : "Download Excel Template"}
@@ -411,7 +427,12 @@ const [tag, setTag] = useState("");
               </div>
             </div>
           </CardContent>
-        </Card>
+        </div>
+
+        {/* Footer */}
+        <p className="text-center text-xs text-muted-foreground py-4">
+          © {new Date().getFullYear()} TVS Credit Service Ltd. All rights reserved.
+        </p>
       </div>
     </div>
   );
