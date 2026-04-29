@@ -4,12 +4,24 @@ services:
     container_name: pptx-frontend
     ports:
       - "8081:80"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - app_net
 
   pptx-backend:
     build: ./pptx-backend
     container_name: pptx-backend
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - app_net
 
