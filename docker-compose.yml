@@ -3,7 +3,7 @@ services:
     build: ./pptx-frontend-main
     container_name: pptx-frontend
     ports:
-      - "8081:80"
+      - "8081:8081"
     restart: unless-stopped
     logging:
       driver: "json-file"
