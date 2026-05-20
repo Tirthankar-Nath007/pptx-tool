@@ -60,22 +60,35 @@ app.add_middleware(
 _AUDIT_LOG_URL = "http://audit.10.223.0.159.nip.io/api/audit-log"
 _AUDIT_SOURCE_APP = "MPR"
 
+_audit_logger = logging.getLogger("audit")
+
 def _send_audit_log(user_id: str, api_endpoint: str, status: str, user_agent: str, ip_address: str) -> None:
+    payload = {
+        "sourceApp": _AUDIT_SOURCE_APP,
+        "userId": user_id,
+        "apiEndpoint": api_endpoint,
+        "status": status,
+        "userAgent": user_agent,
+        "ipAddress": ip_address,
+    }
+    _audit_logger.info("→ Sending audit log | endpoint=%s status=%s userId=%r | payload=%s", api_endpoint, status, user_id, payload)
     try:
-        _http.post(
-            _AUDIT_LOG_URL,
-            json={
-                "sourceApp": _AUDIT_SOURCE_APP,
-                "userId": user_id,
-                "apiEndpoint": api_endpoint,
-                "status": status,
-                "userAgent": user_agent,
-                "ipAddress": ip_address,
-            },
-            timeout=5,
+        resp = _http.post(_AUDIT_LOG_URL, json=payload, timeout=5)
+        _audit_logger.info(
+            "← Audit log response | endpoint=%s http_status=%s | body=%s",
+            api_endpoint, resp.status_code, resp.text,
         )
+        if not resp.ok:
+            _audit_logger.warning(
+                "Audit log rejected [%s] for %s — payload: %s — response: %s",
+                resp.status_code, api_endpoint, payload, resp.text,
+            )
+    except _http.exceptions.Timeout:
+        _audit_logger.warning("Audit log timed out for %s (url=%s)", api_endpoint, _AUDIT_LOG_URL)
+    except _http.exceptions.ConnectionError as exc:
+        _audit_logger.warning("Audit log connection error for %s: %s", api_endpoint, exc)
     except Exception as exc:
-        logging.getLogger("audit").warning("Audit log failed for %s: %s", api_endpoint, exc)
+        _audit_logger.warning("Audit log unexpected error for %s: %s", api_endpoint, exc, exc_info=True)
 
 def _fire_audit_log(user_id: str, api_endpoint: str, status: str, user_agent: str, ip_address: str) -> None:
     threading.Thread(
@@ -283,12 +296,8 @@ def parse_saml_assertion(root: etree._Element) -> dict:
 # =============================================================================
 
 @app.get("/login", summary="Initiate SAML SSO login")
-def login(request: Request):
-    ua = request.headers.get("user-agent", "")
-    ip = request.client.host if request.client else ""
-
+def login():
     if not IDAM_SSO_URL or not ACS_URL:
-        _fire_audit_log("", "/login", "FAILURE", ua, ip)
         return HTMLResponse("SAML not configured", status_code=500)
 
     request_id    = "_" + str(uuid.uuid4())
@@ -298,7 +307,6 @@ def login(request: Request):
     encoded     = deflate_and_base64(xml)
     url_encoded = quote(encoded, safe="")
 
-    _fire_audit_log("", "/login", "SUCCESS", ua, ip)
     redirect_url = f"{IDAM_SSO_URL}?SAMLRequest={url_encoded}"
     return RedirectResponse(redirect_url)
 
@@ -337,7 +345,11 @@ async def acs(request: Request):
     user_id = claims["user_id"]
     if not user_id:
         return HTMLResponse("NameID missing in assertion", status_code=401)
-    
+
+    ua = request.headers.get("user-agent", "")
+    ip = request.client.host if request.client else ""
+    _fire_audit_log(user_id, "/login", "SUCCESS", ua, ip)
+
     response = RedirectResponse(FRONTEND_REDIRECT, status_code=303)
     create_session_cookie(response, claims)
     return response
