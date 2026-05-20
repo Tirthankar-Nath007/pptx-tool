@@ -7,6 +7,8 @@ import base64
 import zlib
 import uuid
 import logging
+import threading
+import requests as _http
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -51,6 +53,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# =============================================================================
+# AUDIT LOGGING
+# =============================================================================
+_AUDIT_LOG_URL = "http://audit.10.223.0.159.nip.io/api/audit-log"
+_AUDIT_SOURCE_APP = "MPR"
+
+def _send_audit_log(user_id: str, api_endpoint: str, status: str, user_agent: str, ip_address: str) -> None:
+    try:
+        _http.post(
+            _AUDIT_LOG_URL,
+            json={
+                "sourceApp": _AUDIT_SOURCE_APP,
+                "userId": user_id,
+                "apiEndpoint": api_endpoint,
+                "status": status,
+                "userAgent": user_agent,
+                "ipAddress": ip_address,
+            },
+            timeout=5,
+        )
+    except Exception as exc:
+        logging.getLogger("audit").warning("Audit log failed for %s: %s", api_endpoint, exc)
+
+def _fire_audit_log(user_id: str, api_endpoint: str, status: str, user_agent: str, ip_address: str) -> None:
+    threading.Thread(
+        target=_send_audit_log,
+        args=(user_id, api_endpoint, status, user_agent, ip_address),
+        daemon=True,
+    ).start()
+
+def _get_user_id(request: Request) -> str:
+    session = get_session(request)
+    return session["user_id"] if session else ""
 
 # =============================================================================
 # SAML AUTHENTICATION CONFIGURATION
@@ -247,17 +283,22 @@ def parse_saml_assertion(root: etree._Element) -> dict:
 # =============================================================================
 
 @app.get("/login", summary="Initiate SAML SSO login")
-def login():
+def login(request: Request):
+    ua = request.headers.get("user-agent", "")
+    ip = request.client.host if request.client else ""
+
     if not IDAM_SSO_URL or not ACS_URL:
+        _fire_audit_log("", "/login", "FAILURE", ua, ip)
         return HTMLResponse("SAML not configured", status_code=500)
-    
+
     request_id    = "_" + str(uuid.uuid4())
     issue_instant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    
+
     xml         = build_authn_request(request_id, issue_instant)
     encoded     = deflate_and_base64(xml)
     url_encoded = quote(encoded, safe="")
-    
+
+    _fire_audit_log("", "/login", "SUCCESS", ua, ip)
     redirect_url = f"{IDAM_SSO_URL}?SAMLRequest={url_encoded}"
     return RedirectResponse(redirect_url)
 
@@ -565,68 +606,74 @@ def generate_pptx(data: PPTXRequest):
 
 
 @app.post("/generate-pptx")
-def generate_pptx_endpoint(request: PPTXRequest):
-    prs = generate_pptx(request)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as tmp:
-        prs.save(tmp.name)
-        return FileResponse(tmp.name, media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation', filename='generated.pptx')
+def generate_pptx_endpoint(request: PPTXRequest, http_request: Request):
+    user_id = _get_user_id(http_request)
+    ua = http_request.headers.get("user-agent", "")
+    ip = http_request.client.host if http_request.client else ""
+    try:
+        prs = generate_pptx(request)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as tmp:
+            prs.save(tmp.name)
+            _fire_audit_log(user_id, "/generate-pptx", "SUCCESS", ua, ip)
+            return FileResponse(tmp.name, media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation', filename='generated.pptx')
+    except Exception:
+        _fire_audit_log(user_id, "/generate-pptx", "FAILURE", ua, ip)
+        raise
 
 
 @app.post("/generate-pptx-from-excel")
-async def generate_pptx_from_excel(file: UploadFile = File(...)):
-    if not file.filename.endswith('.xlsx'):
-        raise HTTPException(status_code=400, detail="File must be an .xlsx file.")
-    
-    # excel_content = await file.read()
-    # df = pd.read_excel(io.BytesIO(excel_content))
-    # columns = list(df.columns)
-    # content = df.astype(str).values.tolist()
-    excel_content = await file.read()
+async def generate_pptx_from_excel(request: Request, file: UploadFile = File(...)):
+    user_id = _get_user_id(request)
+    ua = request.headers.get("user-agent", "")
+    ip = request.client.host if request.client else ""
+    try:
+        if not file.filename.endswith('.xlsx'):
+            raise HTTPException(status_code=400, detail="File must be an .xlsx file.")
 
-    # Read WITHOUT headers
-    df_raw = pd.read_excel(io.BytesIO(excel_content), header=None)
+        excel_content = await file.read()
 
-    # Title = merged A1:G1
-    title = str(df_raw.iloc[0, 0]).strip()
+        # Read WITHOUT headers
+        df_raw = pd.read_excel(io.BytesIO(excel_content), header=None)
 
-    # Headers = row 2 (A2:G2)
-    columns = [col.strip() for col in df_raw.iloc[1].astype(str).tolist()]
-    # Strip character limit from headers (remove "(X)" format)
-    columns = [col.split(" (")[0] for col in columns]
+        # Title = merged A1:G1
+        title = str(df_raw.iloc[0, 0]).strip()
 
-    if "Status" not in columns:
-        raise HTTPException(
-            status_code=400,
-            detail=f"'Status' column not found. Found columns: {columns}"
+        # Headers = row 2 (A2:G2)
+        columns = [col.strip() for col in df_raw.iloc[1].astype(str).tolist()]
+        # Strip character limit from headers (remove "(X)" format)
+        columns = [col.split(" (")[0] for col in columns]
+
+        if "Status" not in columns:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'Status' column not found. Found columns: {columns}"
+            )
+
+        content = (
+            df_raw.iloc[2:]
+            .dropna(how="all")
+            .applymap(normalize_cell)
+            .values
+            .tolist()
         )
 
-    # Data = rows 3 onwards
-    # content = (
-    #     df_raw.iloc[2:]
-    #     .dropna(how="all")      # remove fully empty rows
-    #     .astype(str)
-    #     .values
-    #     .tolist()
-    # )
-    content = (
-        df_raw.iloc[2:]
-        .dropna(how="all")
-        .applymap(normalize_cell)
-        .values
-        .tolist()
-    )
+        data = PPTXRequest(type="project_update", title=title, columns=columns, content=content)
 
-    # Assuming type is fixed or not needed; set to a default
-    data = PPTXRequest(type="project_update", title=title, columns=columns, content=content)
-    
-    prs = generate_pptx(data)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as tmp:
-        prs.save(tmp.name)
-        return FileResponse(tmp.name, media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation', filename='generated.pptx')
+        prs = generate_pptx(data)
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as tmp:
+            prs.save(tmp.name)
+            _fire_audit_log(user_id, "/generate-pptx-from-excel", "SUCCESS", ua, ip)
+            return FileResponse(tmp.name, media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation', filename='generated.pptx')
+    except Exception:
+        _fire_audit_log(user_id, "/generate-pptx-from-excel", "FAILURE", ua, ip)
+        raise
 
 
 @app.get("/download-template")
-def download_template():
+def download_template(request: Request):
+    user_id = _get_user_id(request)
+    ua = request.headers.get("user-agent", "")
+    ip = request.client.host if request.client else ""
     wb = Workbook()
     ws = wb.active
     ws.title = "Project Update"
@@ -756,6 +803,7 @@ def download_template():
     with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
         wb.save(tmp.name)
 
+    _fire_audit_log(user_id, "/download-template", "SUCCESS", ua, ip)
     return FileResponse(
         tmp.name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
