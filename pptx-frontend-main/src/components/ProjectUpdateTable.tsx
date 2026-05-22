@@ -10,11 +10,12 @@ import { Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export interface RowData {
+  change: string;
   brief: string;
   impact: string;
   effort: string;
-  remarks: string;
   eta: string;
+  remarks: string;
   status: string;
 }
 
@@ -83,6 +84,10 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
         <TableHeader>
           <TableRow className="bg-muted/50">
             <TableHead className="w-16 text-center font-semibold">Sl No.</TableHead>
+            <TableHead className="min-w-[120px] font-semibold">
+              Change
+              <span className="text-xs text-muted-foreground ml-1">({MAX_CHARS.change})</span>
+            </TableHead>
             <TableHead className="min-w-[180px] font-semibold">
               Brief about change
               <span className="text-xs text-muted-foreground ml-1">({MAX_CHARS.brief})</span>
@@ -95,13 +100,13 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
               Dev effort
               <span className="text-xs text-muted-foreground ml-1">({MAX_CHARS.effort})</span>
             </TableHead>
-            <TableHead className="min-w-[150px] font-semibold">
-              Remarks
-              <span className="text-xs text-muted-foreground ml-1">({MAX_CHARS.remarks})</span>
-            </TableHead>
             <TableHead className="w-32 font-semibold">
               Gone Live/ETA
               <span className="text-xs text-muted-foreground ml-1">({MAX_CHARS.eta})</span>
+            </TableHead>
+            <TableHead className="min-w-[150px] font-semibold">
+              Remarks
+              <span className="text-xs text-muted-foreground ml-1">({MAX_CHARS.remarks})</span>
             </TableHead>
             <TableHead className="w-40 font-semibold">Status</TableHead>
           </TableRow>
@@ -111,6 +116,9 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
             <TableRow key={index}>
               <TableCell className="text-center font-medium text-muted-foreground">
                 {index + 1}
+              </TableCell>
+              <TableCell className="align-top">
+                {renderInputWithError(index, "change", row.change, "Enter change...", "min-w-[110px]")}
               </TableCell>
               <TableCell className="align-top">
                 {renderTextareaWithError(index, "brief", row.brief, "Enter brief...", "min-w-[160px]")}
@@ -138,9 +146,6 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
                   <p className="text-xs text-destructive break-words">{validationErrors[index].effort}</p>
                 )}
               </TableCell>
-              <TableCell className="align-top">
-                {renderTextareaWithError(index, "remarks", row.remarks, "Remarks...", "min-w-[130px]")}
-              </TableCell>
               <TableCell>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -152,7 +157,6 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
                     >
                       <CalendarIcon className="mr-2 h-4 w-4" />
                       {row.eta ? (() => {
-                        // Parse date string in dd/MM/yyyy format correctly
                         const [day, month, year] = row.eta.split("/");
                         const date = new Date(Number(year), Number(month) - 1, Number(day));
                         return format(date, "dd/MM/yyyy");
@@ -174,6 +178,9 @@ const ProjectUpdateTable = ({ rows, onRowChange, validationErrors }: ProjectUpda
                 {validationErrors[index]?.eta && (
                   <p className="text-xs text-destructive break-words">{validationErrors[index].eta}</p>
                 )}
+              </TableCell>
+              <TableCell className="align-top">
+                {renderTextareaWithError(index, "remarks", row.remarks, "Remarks...", "min-w-[130px]")}
               </TableCell>
               <TableCell>
                 <Select

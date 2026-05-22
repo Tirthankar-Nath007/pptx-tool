@@ -60,22 +60,35 @@ app.add_middleware(
 _AUDIT_LOG_URL = "http://audit.10.223.0.159.nip.io/api/audit-log"
 _AUDIT_SOURCE_APP = "MPR"
 
+_audit_logger = logging.getLogger("audit")
+
 def _send_audit_log(user_id: str, api_endpoint: str, status: str, user_agent: str, ip_address: str) -> None:
+    payload = {
+        "sourceApp": _AUDIT_SOURCE_APP,
+        "userId": user_id,
+        "apiEndpoint": api_endpoint,
+        "status": status,
+        "userAgent": user_agent,
+        "ipAddress": ip_address,
+    }
+    _audit_logger.info("→ Sending audit log | endpoint=%s status=%s userId=%r | payload=%s", api_endpoint, status, user_id, payload)
     try:
-        _http.post(
-            _AUDIT_LOG_URL,
-            json={
-                "sourceApp": _AUDIT_SOURCE_APP,
-                "userId": user_id,
-                "apiEndpoint": api_endpoint,
-                "status": status,
-                "userAgent": user_agent,
-                "ipAddress": ip_address,
-            },
-            timeout=5,
+        resp = _http.post(_AUDIT_LOG_URL, json=payload, timeout=5)
+        _audit_logger.info(
+            "← Audit log response | endpoint=%s http_status=%s | body=%s",
+            api_endpoint, resp.status_code, resp.text,
         )
+        if not resp.ok:
+            _audit_logger.warning(
+                "Audit log rejected [%s] for %s — payload: %s — response: %s",
+                resp.status_code, api_endpoint, payload, resp.text,
+            )
+    except _http.exceptions.Timeout:
+        _audit_logger.warning("Audit log timed out for %s (url=%s)", api_endpoint, _AUDIT_LOG_URL)
+    except _http.exceptions.ConnectionError as exc:
+        _audit_logger.warning("Audit log connection error for %s: %s", api_endpoint, exc)
     except Exception as exc:
-        logging.getLogger("audit").warning("Audit log failed for %s: %s", api_endpoint, exc)
+        _audit_logger.warning("Audit log unexpected error for %s: %s", api_endpoint, exc, exc_info=True)
 
 def _fire_audit_log(user_id: str, api_endpoint: str, status: str, user_agent: str, ip_address: str) -> None:
     threading.Thread(
@@ -283,12 +296,8 @@ def parse_saml_assertion(root: etree._Element) -> dict:
 # =============================================================================
 
 @app.get("/login", summary="Initiate SAML SSO login")
-def login(request: Request):
-    ua = request.headers.get("user-agent", "")
-    ip = request.client.host if request.client else ""
-
+def login():
     if not IDAM_SSO_URL or not ACS_URL:
-        _fire_audit_log("", "/login", "FAILURE", ua, ip)
         return HTMLResponse("SAML not configured", status_code=500)
 
     request_id    = "_" + str(uuid.uuid4())
@@ -298,7 +307,6 @@ def login(request: Request):
     encoded     = deflate_and_base64(xml)
     url_encoded = quote(encoded, safe="")
 
-    _fire_audit_log("", "/login", "SUCCESS", ua, ip)
     redirect_url = f"{IDAM_SSO_URL}?SAMLRequest={url_encoded}"
     return RedirectResponse(redirect_url)
 
@@ -337,7 +345,11 @@ async def acs(request: Request):
     user_id = claims["user_id"]
     if not user_id:
         return HTMLResponse("NameID missing in assertion", status_code=401)
-    
+
+    ua = request.headers.get("user-agent", "")
+    ip = request.client.host if request.client else ""
+    _fire_audit_log(user_id, "/login", "SUCCESS", ua, ip)
+
     response = RedirectResponse(FRONTEND_REDIRECT, status_code=303)
     create_session_cookie(response, claims)
     return response
@@ -428,11 +440,12 @@ class PPTXRequest(BaseModel):
 # Constants
 max_chars = {
     "Sl no.": 4,
-    "Brief about change": 96,
-    "What is the impact": 84,
+    "Change": 40,
+    "Brief about change": 84,
+    "What is the impact": 75,
     "Dev effort": 3,
-    "Remarks": 60,
-    "Gone Live/ETA": 10
+    "Gone Live/ETA": 10,
+    "Remarks": 54,
 }
 
 status_map = {
@@ -449,7 +462,7 @@ status_colors = {
     "yellow": RGBColor(255, 192, 0)   # #FFC000
 }
 
-col_widths = [Inches(0.6), Inches(3.2), Inches(2.8), Inches(1.0), Inches(2.0), Inches(1.5), Inches(1.6)]
+col_widths = [Inches(0.5), Inches(1.4), Inches(2.8), Inches(2.5), Inches(0.8), Inches(1.3), Inches(1.8), Inches(1.6)]
 rows_per_slide = 5
 
 
@@ -468,7 +481,7 @@ def generate_pptx(data: PPTXRequest):
                     raise HTTPException(status_code=400, detail=f"Cell in column '{col_name}' exceeds max length of {max_chars[col_name]} characters.")
 
     # Load template
-    prs = Presentation('powerpoints/template_main_no_table_project_update_footer_new.pptx')
+    prs = Presentation('powerpoints/old/template_main_no_table_project_update_footer_new.pptx')
 
     # update_title_in_presentation(prs, title_text)
 
@@ -680,18 +693,20 @@ def download_template(request: Request):
 
     # === Title (row 1, merged) ===
     ws['A1'] = "Project Update Data"
-    ws.merge_cells('A1:G1')
+    ws.merge_cells('A1:H1')
     title_cell = ws['A1']
     title_cell.font = Font(bold=True, size=16)
 
     # === Headers (row 2) ===
+    # Column order: Sl no. | Change | Brief about change | What is the impact | Dev effort | Gone Live/ETA | Remarks | Status
     headers = [
         "Sl no.",
-        "Brief about change (96)",
-        "What is the impact (84)",           # Capitalized for consistency
+        "Change (40)",
+        "Brief about change (84)",
+        "What is the impact (75)",
         "Dev effort",
-        "Remarks (60)",
         "Gone Live/ETA",
+        "Remarks (54)",
         "Status"
     ]
 
@@ -699,11 +714,11 @@ def download_template(request: Request):
         cell = ws.cell(row=2, column=col_idx, value=header)
         cell.font = Font(bold=True)
 
-    # Optional: pre-fill Sl no. for first 10 rows
+    # Optional: pre-fill Sl no. for first row
     for r in range(3, 4):
         ws.cell(row=r, column=1, value=r - 2)
 
-    # === Dropdown for Status (column G, starting row 3) ===
+    # === Dropdown for Status (column H, starting row 3) ===
     status_options = "Action Over,In Progress,Not as per Plan,Yet to Start"
     dv_status = DataValidation(
         type="list",
@@ -713,10 +728,10 @@ def download_template(request: Request):
         errorTitle="Invalid Status",
         error="Please select a valid status from the dropdown."
     )
-    dv_status.add('G3:G500')   # up to 498 data rows — adjust as needed
+    dv_status.add('H3:H500')
     ws.add_data_validation(dv_status)
-    
-    # === Dropdown for Dev Effort (column D, starting row 3) ===
+
+    # === Dropdown for Dev Effort (column E, starting row 3) ===
     effort_options = "S,M,L,XL"
     dv_effort = DataValidation(
         type="list",
@@ -726,57 +741,69 @@ def download_template(request: Request):
         errorTitle="Invalid Dev Effort",
         error="Please select a valid effort from the dropdown (S, M, L or XL)."
     )
-    dv_effort.add('D3:D500')   # up to 498 data rows — adjust as needed
+    dv_effort.add('E3:E500')
     ws.add_data_validation(dv_effort)
 
     # === Character limit validation for text fields ===
-    # Brief about change (column B, up to 96 chars)
-    dv_brief = DataValidation(
+    # Change (column B, up to 40 chars)
+    dv_change = DataValidation(
         type="textLength",
         operator="lessThanOrEqual",
-        formula1="96",
+        formula1="40",
         allow_blank=True,
         showErrorMessage=True,
         errorTitle="Too Long",
-        error="Brief about change cannot exceed 96 characters."
+        error="Change cannot exceed 40 characters."
     )
-    dv_brief.add('B3:B500')
-    ws.add_data_validation(dv_brief)
-    
-    # What is the impact (column C, up to 84 chars)
-    dv_impact = DataValidation(
+    dv_change.add('B3:B500')
+    ws.add_data_validation(dv_change)
+
+    # Brief about change (column C, up to 84 chars)
+    dv_brief = DataValidation(
         type="textLength",
         operator="lessThanOrEqual",
         formula1="84",
         allow_blank=True,
         showErrorMessage=True,
         errorTitle="Too Long",
-        error="What is the impact cannot exceed 84 characters."
+        error="Brief about change cannot exceed 84 characters."
     )
-    dv_impact.add('C3:C500')
-    ws.add_data_validation(dv_impact)
-    
-    # Remarks (column E, up to 60 chars)
-    dv_remarks = DataValidation(
+    dv_brief.add('C3:C500')
+    ws.add_data_validation(dv_brief)
+
+    # What is the impact (column D, up to 75 chars)
+    dv_impact = DataValidation(
         type="textLength",
         operator="lessThanOrEqual",
-        formula1="60",
+        formula1="75",
         allow_blank=True,
         showErrorMessage=True,
         errorTitle="Too Long",
-        error="Remarks cannot exceed 60 characters."
+        error="What is the impact cannot exceed 75 characters."
     )
-    dv_remarks.add('E3:E500')
+    dv_impact.add('D3:D500')
+    ws.add_data_validation(dv_impact)
+
+    # Remarks (column G, up to 54 chars)
+    dv_remarks = DataValidation(
+        type="textLength",
+        operator="lessThanOrEqual",
+        formula1="54",
+        allow_blank=True,
+        showErrorMessage=True,
+        errorTitle="Too Long",
+        error="Remarks cannot exceed 54 characters."
+    )
+    dv_remarks.add('G3:G500')
     ws.add_data_validation(dv_remarks)
-    
+
     # === Date format and date picker for "Gone Live/ETA" column (F) ===
-    # Set date number format (DD/MM/YYYY)
     from openpyxl.styles import numbers
     date_column = get_column_letter(6)  # Column F
     for row in range(3, 501):
         cell = ws[f"{date_column}{row}"]
         cell.number_format = numbers.FORMAT_DATE_DDMMYY
-    
+
     # Add date validation (allow only dates)
     dv_date = DataValidation(
         type="date",
@@ -788,11 +815,11 @@ def download_template(request: Request):
         errorTitle="Invalid Date",
         error="Please select a valid date (DD/MM/YYYY format)."
     )
-    dv_date.add('F3:F500')  # up to 498 data rows — adjust as needed
+    dv_date.add('F3:F500')
     ws.add_data_validation(dv_date)
-    
+
     # === Better column widths ===
-    col_widths = [10, 40, 35, 14, 30, 18, 20]
+    col_widths = [8, 22, 36, 32, 12, 18, 26, 22]
     for col_idx, width in enumerate(col_widths, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
