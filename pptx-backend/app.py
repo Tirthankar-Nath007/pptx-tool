@@ -539,6 +539,10 @@ def generate_pptx(data: PPTXRequest):
             cell.fill.fore_color.rgb = RGBColor(30, 73, 127)
             para = cell.text_frame.paragraphs[0]
             para.alignment = PP_ALIGN.CENTER
+            if not para.runs:
+                para.clear()
+                r = para.add_run()
+                r.text = head
             run = para.runs[0]
             run.font.size = Pt(14)
             run.font.bold = True
@@ -566,6 +570,11 @@ def generate_pptx(data: PPTXRequest):
                 para.alignment = aligns[c]
 
                 if cell.text:
+                    if not para.runs:
+                        saved_text = cell.text
+                        para.clear()
+                        r = para.add_run()
+                        r.text = saved_text
                     run = para.runs[0]
                     run.font.size = Pt(12)
                     run.font.name = "Arial"
