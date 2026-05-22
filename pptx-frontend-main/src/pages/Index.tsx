@@ -27,20 +27,22 @@ import logo from "../assets/tvscredit-logo.png";
 
 const FIXED_COLUMNS = [
   "Sl no.",
+  "Change",
   "Brief about change",
   "What is the impact",
   "Dev effort",
-  "Remarks",
   "Gone Live/ETA",
+  "Remarks",
   "Status",
 ];
 
 const createEmptyRow = (): RowData => ({
+  change: "",
   brief: "",
   impact: "",
   effort: "",
-  remarks: "",
   eta: "",
+  remarks: "",
   status: "",
 });
 
@@ -137,11 +139,12 @@ const Index = ({ user, onLogout }: IndexProps) => {
     try {
       const content: string[][] = rows.map((row, index) => [
         String(index + 1),
+        row.change,
         row.brief,
         row.impact,
         row.effort,
-        row.remarks,
         row.eta,
+        row.remarks,
         row.status,
       ]);
 
